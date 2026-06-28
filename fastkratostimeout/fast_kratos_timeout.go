@@ -11,11 +11,11 @@ package fastkratostimeout
 
 import (
 	"context"
+	"log/slog"
 	"time"
 
-	"github.com/go-kratos/kratos/v2/log"
-	"github.com/go-kratos/kratos/v2/middleware"
-	"github.com/go-kratos/kratos/v2/middleware/selector"
+	"github.com/go-kratos/kratos/v3/middleware"
+	"github.com/go-kratos/kratos/v3/middleware/selector"
 	"github.com/yylego/kratos-auth/authkratos"
 	"github.com/yylego/neatjson/neatjsons"
 )
@@ -63,42 +63,37 @@ func (c *Config) WithNewSpanHook(fn authkratos.NewSpanHookFunc) *Config {
 // 就是先给整个服务的接口配置很长的超时时间，再限制其余接口的超时时间为更短的时间
 // 配置时使用 "EXCLUDE" 排除这些接口，其它的都是快速超时的
 // 即可满足"设置更长超时时间"的需求
-func NewMiddleware(cfg *Config, logger log.Logger) middleware.Middleware {
-	slog := log.NewHelper(logger)
-	slog.Infof(
-		"fast-kratos-timeout: new middleware side=%v operations=%d new-timeout=%v debug-mode=%v",
-		cfg.routeScope.Side,
-		len(cfg.routeScope.OperationSet),
-		cfg.newTimeout,
-		authkratos.BooleanToNum(cfg.debugMode),
+func NewMiddleware(cfg *Config, applog *slog.Logger) middleware.Middleware {
+	applog.Info(
+		"fast-kratos-timeout: new middleware",
+		"side", cfg.routeScope.Side,
+		"operations", len(cfg.routeScope.OperationSet),
+		"new-timeout", cfg.newTimeout,
+		"debug-mode", authkratos.BooleanToNum(cfg.debugMode),
 	)
 	if cfg.debugMode {
-		slog.Debugf("fast-kratos-timeout: new middleware route-scope: %s", neatjsons.S(cfg.routeScope))
+		applog.Debug("fast-kratos-timeout: new middleware route-scope", "route-scope", neatjsons.S(cfg.routeScope))
 	}
-	return selector.Server(middlewareFunc(cfg, logger)).Match(matchFunc(cfg, logger)).Build()
+	return selector.Server(middlewareFunc(cfg, applog)).Match(matchFunc(cfg, applog)).Build()
 }
 
-func matchFunc(cfg *Config, logger log.Logger) selector.MatchFunc {
-	slog := log.NewHelper(logger)
-
+func matchFunc(cfg *Config, applog *slog.Logger) selector.MatchFunc {
 	return func(ctx context.Context, operation string) bool {
 		defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "fast-kratos-timeout-match")()
 
 		match := cfg.routeScope.Match(operation)
 		if cfg.debugMode {
 			if match {
-				slog.Debugf("fast-kratos-timeout: operation=%s side=%v match=%d next -> fast-timeout", operation, cfg.routeScope.Side, authkratos.BooleanToNum(match))
+				applog.Debug("fast-kratos-timeout: match next -> fast-timeout", "operation", operation, "side", cfg.routeScope.Side, "match", authkratos.BooleanToNum(match))
 			} else {
-				slog.Debugf("fast-kratos-timeout: operation=%s side=%v match=%d skip -- slow-timeout", operation, cfg.routeScope.Side, authkratos.BooleanToNum(match))
+				applog.Debug("fast-kratos-timeout: match skip -- slow-timeout", "operation", operation, "side", cfg.routeScope.Side, "match", authkratos.BooleanToNum(match))
 			}
 		}
 		return match
 	}
 }
 
-func middlewareFunc(cfg *Config, logger log.Logger) middleware.Middleware {
-	slog := log.NewHelper(logger)
-
+func middlewareFunc(cfg *Config, applog *slog.Logger) middleware.Middleware {
 	return func(handleFunc middleware.Handler) middleware.Handler {
 		return func(ctx context.Context, req interface{}) (interface{}, error) {
 			defer authkratos.RunSpanHooks(ctx, cfg.spanHooks, "fast-kratos-timeout")()
@@ -108,7 +103,7 @@ func middlewareFunc(cfg *Config, logger log.Logger) middleware.Middleware {
 			ctx, can := context.WithTimeout(ctx, cfg.newTimeout)
 			defer can()
 			if cfg.debugMode {
-				slog.Debugf("fast-kratos-timeout: context with new-timeout=%v fast-timeout", cfg.newTimeout)
+				applog.Debug("fast-kratos-timeout: context with new-timeout", "new-timeout", cfg.newTimeout)
 			}
 			return handleFunc(ctx, req)
 		}
