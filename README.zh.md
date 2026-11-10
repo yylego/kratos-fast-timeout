@@ -1,9 +1,13 @@
+<!-- TEMPLATE (ZH) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/kratos-fast-timeout/release.yml?branch=main&label=BUILD)](https://github.com/yylego/kratos-fast-timeout/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/kratos-fast-timeout)](https://pkg.go.dev/github.com/yylego/kratos-fast-timeout)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/kratos-fast-timeout/main.svg)](https://coveralls.io/github/yylego/kratos-fast-timeout?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.26%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/kratos-fast-timeout.svg)](https://github.com/yylego/kratos-fast-timeout/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/kratos-fast-timeout)](https://goreportcard.com/report/github.com/yylego/kratos-fast-timeout)
+
+<!-- TEMPLATE (ZH) CLOSE: BADGES -->
 
 # kratos-fast-timeout
 
@@ -17,15 +21,14 @@
 
 [ENGLISH README](README.md)
 
-<!-- TEMPLATE (ZH) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (ZH) CLOSE: LANGUAGE NAVIGATION -->
 
 ## 核心特性
 
-⏱️ **快速超时**: 通过路由范围配置在特定路由上缩短超时时间
-🎯 **路由范围**: INCLUDE/EXCLUDE 模式选择哪些路由启用快速超时
-🔄 **基于上下文**: 集成 Go context 超时机制（取最短时间）
-📡 **APM 追踪**: 通过 `authkratos.SpanHook` 进行可插拔的 span 钩子集成
-⚙️ **调试模式**: 提供详细的调试输出，便于排查超时决策
+- ⏱️ **快速超时**: 通过路由范围配置在特定路由上缩短超时时间
+- 🎯 **路由范围**: INCLUDE/EXCLUDE 模式选择哪些路由启用快速超时
+- 🔄 **基于上下文**: 集成 Go context 超时机制（取最短时间）
+- 🪵 **调试日志**: 每次路由匹配以 debug 级别写进日志，显示与否由日志级别决定
 
 ## 安装
 
@@ -33,15 +36,42 @@
 go get github.com/yylego/kratos-fast-timeout
 ```
 
+## 设计思路
+
+context 的超时只能缩短、不能延长，所以「给几个慢接口放宽超时」要反过来配：
+
+1. 服务整体的超时配成慢接口需要的长时间；
+2. 用 `NewExclude` 把慢接口排除掉，其余接口都用这个中间件缩短成快速超时。
+
+上游传来的截止时间本来就更短时，照原样保留，不会被拉长。
+
 ## 使用方法
 
 ```go
-import "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
+package server
 
-cfg := fastkratostimeout.NewConfig(routeScope, 3*time.Second).
-    WithDebugMode(true)
-mw := fastkratostimeout.NewMiddleware(cfg, logger)
+import (
+    "log/slog"
+    "time"
+
+    "github.com/go-kratos/kratos/v3/transport/grpc"
+    "github.com/yylego/kratos-auth/authkratos"
+    "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
+)
+
+func NewGRPCServer(applog *slog.Logger) *grpc.Server {
+    // 除了导出报表这个慢接口，其余接口都是 3 秒超时
+    slowScope := authkratos.NewExclude("/api.v1.Demo/ExportReport")
+    cfg := fastkratostimeout.NewConfig(slowScope, 3*time.Second)
+
+    return grpc.NewServer(
+        grpc.Timeout(5*time.Minute), // 服务整体超时，按最慢的接口配
+        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, applog)),
+    )
+}
 ```
+
+快速超时必须大于零，配成 0 或负数时 `NewMiddleware` 在启动时就 panic，否则匹配到的请求会全部立刻超时。
 
 ---
 
@@ -103,10 +133,4 @@ MIT 许可证 - 详见 [LICENSE](LICENSE)。
 
 **祝你用这个包编程愉快！** 🎉🎉🎉
 
-<!-- TEMPLATE (ZH) END: STANDARD PROJECT FOOTER -->
-
----
-
-## GitHub 标星点赞
-
-[![标星点赞](https://starchart.cc/yylego/kratos-fast-timeout.svg?variant=adaptive)](https://starchart.cc/yylego/kratos-fast-timeout)
+<!-- TEMPLATE (ZH) CLOSE: STANDARD PROJECT FOOTER -->

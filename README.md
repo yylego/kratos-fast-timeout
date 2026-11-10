@@ -1,9 +1,13 @@
+<!-- TEMPLATE (EN) BEGIN: BADGES -->
+
 [![GitHub Workflow Status (branch)](https://img.shields.io/github/actions/workflow/status/yylego/kratos-fast-timeout/release.yml?branch=main&label=BUILD)](https://github.com/yylego/kratos-fast-timeout/actions/workflows/release.yml?query=branch%3Amain)
 [![GoDoc](https://pkg.go.dev/badge/github.com/yylego/kratos-fast-timeout)](https://pkg.go.dev/github.com/yylego/kratos-fast-timeout)
 [![Coverage Status](https://img.shields.io/coveralls/github/yylego/kratos-fast-timeout/main.svg)](https://coveralls.io/github/yylego/kratos-fast-timeout?branch=main)
-[![Supported Go Versions](https://img.shields.io/badge/Go-1.25+-lightgrey.svg)](https://go.dev/)
+[![Supported Go Versions](https://img.shields.io/badge/Go-1.26%2B-lightgrey.svg)](https://go.dev/)
 [![GitHub Release](https://img.shields.io/github/release/yylego/kratos-fast-timeout.svg)](https://github.com/yylego/kratos-fast-timeout/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/yylego/kratos-fast-timeout)](https://goreportcard.com/report/github.com/yylego/kratos-fast-timeout)
+
+<!-- TEMPLATE (EN) CLOSE: BADGES -->
 
 # kratos-fast-timeout
 
@@ -17,15 +21,14 @@ Timeout override middleware with route-based scope and fast-path shortening.
 
 [中文说明](README.zh.md)
 
-<!-- TEMPLATE (EN) END: LANGUAGE NAVIGATION -->
+<!-- TEMPLATE (EN) CLOSE: LANGUAGE NAVIGATION -->
 
 ## Main Features
 
-⏱️ **Fast Timeout**: Shorten timeout on specific routes via route scope configuration
-🎯 **Route Scope**: INCLUDE/EXCLUDE mode to choose which routes get fast timeout
-🔄 **Context-Based**: Integrates with Go context timeout mechanism (shortest wins)
-📡 **APM Tracing**: Span hook integration via `authkratos.SpanHook`
-⚙️ **Debug Mode**: Verbose debug output to troubleshoot timeout decisions
+- ⏱️ **Fast Timeout**: Shorten timeout on specific routes via route scope configuration
+- 🎯 **Route Scope**: INCLUDE/EXCLUDE mode to choose which routes get fast timeout
+- 🔄 **Context-Based**: Integrates with Go context timeout mechanism (shortest wins)
+- 🪵 **Debug Logs**: Each route match goes to the logger at debug level, and the logger level decides if it shows
 
 ## Installation
 
@@ -33,15 +36,42 @@ Timeout override middleware with route-based scope and fast-path shortening.
 go get github.com/yylego/kratos-fast-timeout
 ```
 
+## Design Intent
+
+A context timeout can be shortened but not extended, so "give a few slow routes more time" is set up in reverse:
+
+1. Set the service timeout to the long time the slow routes need.
+2. Use `NewExclude` to leave out the slow routes, and this middleware cuts each remaining route down to the fast timeout.
+
+An upstream deadline that is tight to begin with stays as it is and does not get stretched.
+
 ## Usage
 
 ```go
-import "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
+package server
 
-cfg := fastkratostimeout.NewConfig(routeScope, 3*time.Second).
-    WithDebugMode(true)
-mw := fastkratostimeout.NewMiddleware(cfg, logger)
+import (
+    "log/slog"
+    "time"
+
+    "github.com/go-kratos/kratos/v3/transport/grpc"
+    "github.com/yylego/kratos-auth/authkratos"
+    "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
+)
+
+func NewGRPCServer(applog *slog.Logger) *grpc.Server {
+    // Each route except the slow report export gets 3 seconds
+    slowScope := authkratos.NewExclude("/api.v1.Demo/ExportReport")
+    cfg := fastkratostimeout.NewConfig(slowScope, 3*time.Second)
+
+    return grpc.NewServer(
+        grpc.Timeout(5*time.Minute), // The service timeout, set to what the slowest route needs
+        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, applog)),
+    )
+}
 ```
+
+The fast timeout must be above zero: a value of 0 and below makes `NewMiddleware` panic at startup, since each matched request would time out at once.
 
 ---
 
@@ -103,10 +133,4 @@ Welcome to contribute to this project via submitting merge requests and reportin
 
 **Have Fun Coding with this package!** 🎉🎉🎉
 
-<!-- TEMPLATE (EN) END: STANDARD PROJECT FOOTER -->
-
----
-
-## GitHub Stars
-
-[![Stargazers](https://starchart.cc/yylego/kratos-fast-timeout.svg?variant=adaptive)](https://starchart.cc/yylego/kratos-fast-timeout)
+<!-- TEMPLATE (EN) CLOSE: STANDARD PROJECT FOOTER -->
