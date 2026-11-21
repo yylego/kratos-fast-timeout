@@ -48,8 +48,6 @@ context 的超时只能缩短、不能延长，所以「给几个慢接口放宽
 ## 使用方法
 
 ```go
-package server
-
 import (
     "log/slog"
     "time"
@@ -59,14 +57,14 @@ import (
     "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
 )
 
-func NewGRPCServer(applog *slog.Logger) *grpc.Server {
+func newGRPCServer(logger *slog.Logger) *grpc.Server {
     // 除了导出报表这个慢接口，其余接口都是 3 秒超时
     slowScope := authkratos.NewExclude("/api.v1.Demo/ExportReport")
     cfg := fastkratostimeout.NewConfig(slowScope, 3*time.Second)
 
     return grpc.NewServer(
         grpc.Timeout(5*time.Minute), // 服务整体超时，按最慢的接口配
-        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, applog)),
+        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, logger)),
     )
 }
 ```

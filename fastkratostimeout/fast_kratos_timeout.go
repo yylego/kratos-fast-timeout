@@ -36,24 +36,19 @@ func NewConfig(routeScope *authkratos.RouteScope, newTimeout time.Duration) *Con
 	}
 }
 
-// NewMiddleware creates middleware with shorter timeout on specific routes
-// In practice extending timeout is more common than shortening
-// Since ctx timeout can just shorten not extend, use exclusion filtering approach:
-// Set long timeout on entire service, then limit other routes with shorter timeouts
-// Use EXCLUDE mode to exclude routes needing long timeout, others get fast timeout
-// This satisfies the "extend timeout" requirement
+// NewMiddleware creates the timeout middleware: routes inside the scope get the fast timeout, routes outside the scope keep the service timeout
+// A context timeout can be shortened but not extended, so "give a few slow routes more time" is set up in reverse:
+// set the service timeout to the long time the slow routes need, then leave the slow routes out with authkratos.NewExclude, and each remaining route gets the fast timeout
+// An upstream deadline that is tight to begin with stays as it is
 // Panics when the fast timeout is not above zero, since each matched request would then time out at once
-// Each match and timeout outcome goes to applog at debug level, so the level of applog decides if it shows
+// Each match and each timeout applied goes to applog at debug level, so the level of applog decides if it shows
 //
-// NewMiddleware 这个函数得到个middleware让某些接口具有更短的超时时间
-// 但现实中我们遇到的问题往往是需要延长某个接口的超时时间
-// 这样"设置更长超时时间"的需求更常见，以下是解决的思路
-// 由于 ctx 的超时时间只能缩短而不能延长，因此整个设计是用"排除法过滤"
-// 就是先给整个服务的接口配置很长的超时时间，再限制其余接口的超时时间为更短的时间
-// 配置时使用 "EXCLUDE" 排除这些接口，其它的都是快速超时的
-// 即可满足"设置更长超时时间"的需求
+// NewMiddleware 创建超时中间件：范围内的路由用快速超时，范围外的路由保持服务整体的超时
+// context 的超时只能缩短、不能延长，所以「给几个慢接口放宽超时」要反过来配：
+// 服务整体的超时配成慢接口需要的长时间，再用 authkratos.NewExclude 把慢接口排除掉，其余接口都缩短成快速超时
+// 上游传来的截止时间本来就更短时，照原样保留
 // 快速超时不大于零时 panic，否则匹配到的请求会全部立刻超时
-// 每次匹配和超时结果以 debug 级别写进 applog，显示与否由 applog 的日志级别决定
+// 每次匹配和每次设置超时以 debug 级别写进 applog，显示与否由 applog 的日志级别决定
 func NewMiddleware(cfg *Config, applog *slog.Logger) middleware.Middleware {
 	if cfg.newTimeout <= 0 {
 		panic(fmt.Errorf("fast-kratos-timeout: new-timeout must be above zero, got %v", cfg.newTimeout))
@@ -83,7 +78,7 @@ func middlewareFunc(cfg *Config, applog *slog.Logger) middleware.Middleware {
 			// context 取所有超时里最早的那个，所以新超时只能缩短、不能延长
 			ctx, cancel := context.WithTimeout(ctx, cfg.newTimeout)
 			defer cancel()
-			applog.Debug("fast-kratos-timeout: context with new-timeout", "new-timeout", cfg.newTimeout)
+			applog.Debug("fast-kratos-timeout: timeout applied", "new-timeout", cfg.newTimeout)
 			return handleFunc(ctx, req)
 		}
 	}

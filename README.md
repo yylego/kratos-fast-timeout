@@ -48,8 +48,6 @@ An upstream deadline that is tight to begin with stays as it is and does not get
 ## Usage
 
 ```go
-package server
-
 import (
     "log/slog"
     "time"
@@ -59,14 +57,14 @@ import (
     "github.com/yylego/kratos-fast-timeout/fastkratostimeout"
 )
 
-func NewGRPCServer(applog *slog.Logger) *grpc.Server {
+func newGRPCServer(logger *slog.Logger) *grpc.Server {
     // Each route except the slow report export gets 3 seconds
     slowScope := authkratos.NewExclude("/api.v1.Demo/ExportReport")
     cfg := fastkratostimeout.NewConfig(slowScope, 3*time.Second)
 
     return grpc.NewServer(
         grpc.Timeout(5*time.Minute), // The service timeout, set to what the slowest route needs
-        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, applog)),
+        grpc.Middleware(fastkratostimeout.NewMiddleware(cfg, logger)),
     )
 }
 ```
